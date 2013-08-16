@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 the original author or authors.
+ * Copyright 2012-2013 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +24,10 @@ import org.vertx.java.busmods.BusModBase ;
 import org.vertx.java.core.Handler ;
 import org.vertx.java.core.json.JsonObject;
 import org.vertx.java.core.eventbus.Message;
+import org.vertx.java.core.eventbus.impl.BaseMessage ;
+import org.vertx.java.core.eventbus.impl.JsonObjectMessage ;
 
-public class CircuitBreakerProxy extends BusModBase implements Handler<Message<JsonObject>> {
+public class CircuitBreakerProxy extends BusModBase implements Handler<JsonObjectMessage> {
   private String address ;
   private String proxiedAddress ;
   private CircuitBreakerState state ;
@@ -94,8 +96,8 @@ public class CircuitBreakerProxy extends BusModBase implements Handler<Message<J
     }
   }
 
-  public void handle( final Message<JsonObject> message ) {
-    logger.info( String.format( "%s recieved %s for %s", address, proxiedAddress, message.body.encode() ) ) ;
+  public void handle( final JsonObjectMessage message ) {
+    logger.info( String.format( "%s recieved %s for %s", address, proxiedAddress, message.body().encode() ) ) ;
     if( state == CircuitBreakerState.OPEN ||
         state == CircuitBreakerState.SEMI_OPEN ) {
       if( System.currentTimeMillis() - lastStateChange > reset_time ) {
@@ -129,7 +131,7 @@ public class CircuitBreakerProxy extends BusModBase implements Handler<Message<J
                        new CircuitBreakerException() ) ;
           }
         } );
-        eb.send( proxiedAddress, message.body, new Handler<Message<JsonObject>>() {
+        eb.send( proxiedAddress, message.body(), new Handler<Message<JsonObject>>() {
           public void handle( Message<JsonObject> reply ) {
             messageReplied( message, reply, proxiedAddress, timeoutID ) ;
           }
@@ -139,43 +141,65 @@ public class CircuitBreakerProxy extends BusModBase implements Handler<Message<J
     }
   }
 
+  private Handler<Message<JsonObject>> buildResponse( final Message<JsonObject> reply,
+                                                      final String proxyAddress,
+                                                      final long timeoutID ) {
+    return new Handler<Message<JsonObject>>() {
+      public void handle( final Message<JsonObject> replyReply ) {
+        reply.reply( replyReply.body(), new Handler<Message<JsonObject>>() {
+          public void handle( Message<JsonObject> replyReplyReply ) {
+            messageReplied( new NonLoadedHolder( replyReply ), replyReplyReply, proxyAddress, timeoutID ) ;
+          }
+        } ) ;
+      }
+    } ;
+  }
   private void messageReplied( final Message<JsonObject> message, final Message<JsonObject> reply,
                                final String proxyAddress,
                                final long timeoutID ) {
-    if (reply.replyAddress != null) {
+    if (reply.replyAddress() != null) {
       // The reply itself has a reply specified so we don't consider the message processed just yet
-      message.reply( reply.body, new Handler<Message<JsonObject>>() {
-        public void handle( final Message<JsonObject> replyReply ) {
-          reply.reply( replyReply.body, new Handler<Message<JsonObject>>() {
-            public void handle( Message<JsonObject> replyReplyReply ) {
-              messageReplied( new NonLoadedHolder( replyReply ), replyReplyReply, proxyAddress, timeoutID ) ;
-            }
-          } ) ;
-        }
-      } ) ;
+      message.reply( reply.body(), buildResponse( reply, proxyAddress, timeoutID ) ) ;
     } else {
       messageProcessed( timeoutID, proxyAddress, message, reply ) ;
     }
   }
 
-  private void messageProcessed( long timeoutID, 
-                                 String proxyAddress, 
-                                 Message<JsonObject> message,
-                                 Message<JsonObject> reply ) {
+  private void messageReplied( final NonLoadedHolder message, final Message<JsonObject> reply, final String proxyAddress,
+                               final long timeoutID ) {
+    if (reply.replyAddress() != null) {
+      // The reply itself has a reply specified so we don't consider the message processed just yet
+      message.reply( reply.body(), buildResponse( reply, proxyAddress, timeoutID ) ) ;
+    } else {
+      messageProcessed( timeoutID, proxyAddress, message, reply ) ;
+    }
+  }
+
+  private void process( long timeoutID, String proxyAddress, Message<JsonObject> reply ) {
     vertx.cancelTimer( timeoutID ) ;
-    String status = reply.body.getString( "status" ) ;
+    String status = reply.body().getString( "status" ) ;
     if( status != null && !status.equals( "ok" ) ) {
       incrementFailures( state == CircuitBreakerState.SEMI_OPEN ) ;
       logger.warn( String.format( "Circuit Breaker error status. Current failure count %d", failures ) ) ;
     }
-    message.reply( reply.body, null ) ;
   }
 
-  private static class NonLoadedHolder extends Message<JsonObject> {
+  private void messageProcessed( long timeoutID, String proxyAddress, Message<JsonObject> message, Message<JsonObject> reply ) {
+    process( timeoutID, proxyAddress, reply ) ;
+    message.reply( reply.body(), null ) ;
+  }
+
+  private void messageProcessed( long timeoutID, String proxyAddress, NonLoadedHolder message, Message<JsonObject> reply ) {
+    process( timeoutID, proxyAddress, reply ) ;
+    message.reply( reply.body(), null ) ;
+  }
+
+
+  private static class NonLoadedHolder {
     private final Message<JsonObject> message;
 
     private NonLoadedHolder( Message<JsonObject> message ) { this.message = message ; }
-    public JsonObject getBody()                            { return message.body ;    }
+    public JsonObject getBody()                            { return message.body() ;  }
 
     public void reply( JsonObject reply, Handler<Message<JsonObject>> replyReplyHandler ) {
       message.reply(reply, replyReplyHandler);

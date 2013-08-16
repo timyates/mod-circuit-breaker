@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2012 the original author or authors.
+ * Copyright 2012-2013 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-load('test_utils.js')
-load('vertx.js')
+var container  = require( "vertx/container" ) ;
+var eb         = require( "vertx/event_bus" ) ;
+var vertx      = require( "vertx" ) ;
+var vertxTests = require( "vertx_tests" ) ;
+var vassert    = require( "vertx_assert" ) ;
 
-var tu = new TestUtils();
-
-var eb = vertx.eventBus;
+var script = this ;
 
 function testMissingToAddress() {
   eb.send( 'test.my_mailer', {
@@ -27,12 +28,11 @@ function testMissingToAddress() {
     "subject": "Congratulations on your new armadillo!",
     "body": "Dear Bob, great to here you have purchased......"
   }, function( reply ) {
-    tu.azzert( reply.status === 'error' ) ;
-    tu.testComplete() ;
+    vassert.assertEquals( reply.status, 'error' ) ;
+    vassert.testComplete() ;
   } )
 }
 
-tu.registerTests(this);
 var breakerConfig = { 
   "address" : "breaker-addr",
   "max_failures" : 5,
@@ -40,7 +40,7 @@ var breakerConfig = {
   "reset_time"   : 60,
   
   "circuits": {
-    "vertx.mongo-persistor-v1.1" : {
+    "io.vertx~mod-mongo-persistor~2.0.0-final" : {
       "circuitConfig": {
         "instances": 1
       },
@@ -51,7 +51,7 @@ var breakerConfig = {
         "db_name" : "my_db"
       }
     },
-    "vertx.mailer-v1.0" : {
+    "io.vertx~mod-mailer~2.0.0-final" : {
       "circuitConfig": {
         "instances": 1
       },
@@ -68,14 +68,20 @@ var breakerConfig = {
   }
 } ;
 
+var readyAddress = breakerConfig.address + '.ready'
 
-vertx.deployModule('com.bloidonia.circuit-breaker-v' + java.lang.System.getProperty('vertx.version'), breakerConfig, 1, function() {
-  // Wait for the work-queue to power up...
-  java.lang.Thread.sleep( 2000 ) ;
-  tu.appReady();
+var readyHandler = function( msg ) {
+  if( msg.status === 'ok' ) {
+    eb.unregisterHandler( readyAddress, readyHandler ) ;
+    vertxTests.startTests( script ) ;
+  }
+} ;
+
+// This will get called when the circuit breaker is
+eb.registerHandler( readyAddress, readyHandler ) ;
+
+container.deployModule( java.lang.System.getProperty( 'vertx.modulename' ), breakerConfig, 1, function( err, deployId ) {
+  if (err != null) {
+    err.printStackTrace();
+  }
 });
-
-function vertxStop() {
-  tu.unregisterAll();
-  tu.appStopped();
-}

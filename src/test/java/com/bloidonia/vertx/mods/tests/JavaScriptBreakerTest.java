@@ -1,7 +1,7 @@
 package com.bloidonia.vertx.mods.tests ;
 
 /*
- * Copyright 2011-2012 the original author or authors.
+ * Copyright 2012-2013 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,15 @@ package com.bloidonia.vertx.mods.tests ;
  * limitations under the License.
  */
 
+import org.vertx.testtools.ScriptClassRunner;
+import org.vertx.testtools.TestVerticleInfo;
+import org.vertx.testtools.VertxAssert;
 import org.junit.Test;
-import org.vertx.java.framework.TestBase;
+import org.junit.runner.RunWith;
 
-public class JavaScriptBreakerTest extends TestBase {
+@TestVerticleInfo(filenameFilter=".+\\.js", funcRegex="function[\\s]+(test[^\\s(]+)")
+@RunWith(ScriptClassRunner.class)
+public class JavaScriptBreakerTest {
 
   public static int sleep( int seconds, int id ) {
     try {
@@ -29,22 +34,6 @@ public class JavaScriptBreakerTest extends TestBase {
     catch( Exception e ) {
       return -id ;
     }
-  }
-
-  @Override
-  protected void setUp() throws Exception {
-    super.setUp();
-    startApp("test_client.js");
-  }
-
-  @Override
-  protected void tearDown() throws Exception {
-    super.tearDown();
-  }
-
-  @Test
-  public void testMissingToAddress() throws Exception {
-    startTest(getMethodName());
   }
 }
 
