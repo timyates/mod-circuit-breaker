@@ -38,3 +38,5 @@ Example config:
         }
       }
     }
+
+[There's an overly simple test here](https://github.com/timyates/mod-circuit-breaker/blob/master/src/test/resources/integration_tests/javascript/test_client.js)
